@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+snapshots/
+recordings/
+build/
+dist/
+*.spec
+test_snapshots/
+test_recordings/
