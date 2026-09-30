@@ -11,8 +11,10 @@ from engine.filter_engine import FilterEngine
 from engine.ai_vision import AIVisionSuite
 from engine.recorder import MediaRecorder
 from engine.audio_cue import AudioCueManager
+from engine.point_cloud import PointCloudGenerator, PointCloudData
 from ui.theme import StudioTheme
 from ui.canvas_viewport import CanvasViewport
+from ui.point_cloud_viewer import PointCloudViewerWidget
 from ui.gallery_panel import GalleryPanel
 from ui.clipboard_helper import ClipboardHelper
 
@@ -48,6 +50,8 @@ class WebcamStudioApp:
         self.filter_engine = FilterEngine()
         self.ai_vision = AIVisionSuite()
         self.recorder = MediaRecorder()
+        self.pcd_generator = PointCloudGenerator()
+        self.active_view = "2D Camera"
 
         # Connect AI security auto-snapshot callback
         self.ai_vision.security_snap_callback = self._on_security_alert
@@ -119,6 +123,16 @@ class WebcamStudioApp:
         right_bar = ttk.Frame(self.header_frame, style="Sidebar.TFrame")
         right_bar.pack(side=tk.RIGHT, padx=6)
 
+        # 2D Live Camera vs 3D Cloud Viewport Switcher
+        view_frame = ttk.Frame(right_bar, style="Sidebar.TFrame")
+        view_frame.pack(side=tk.LEFT, padx=(0, 10))
+        self.btn_view_2d = ttk.Button(view_frame, text="📹 2D Camera", style="Primary.TButton",
+                                      command=lambda: self.switch_view("2D Camera"))
+        self.btn_view_2d.pack(side=tk.LEFT, padx=1)
+        self.btn_view_3d = ttk.Button(view_frame, text="🌐 3D Cloud", style="Small.TButton",
+                                      command=lambda: self.switch_view("3D Point Cloud"))
+        self.btn_view_3d.pack(side=tk.LEFT, padx=1)
+
         # Audio Sound Toggle
         self.sound_var = tk.BooleanVar(value=True)
         self.btn_sound = ttk.Button(right_bar, text="🔊 Audio", style="Small.TButton", command=self._toggle_audio)
@@ -154,21 +168,30 @@ class WebcamStudioApp:
         self.tab_capture = ttk.Frame(self.notebook, style="Sidebar.TFrame")
         self.tab_filters = ttk.Frame(self.notebook, style="Sidebar.TFrame")
         self.tab_ai = ttk.Frame(self.notebook, style="Sidebar.TFrame")
+        self.tab_3d = ttk.Frame(self.notebook, style="Sidebar.TFrame")
         self.tab_shortcuts = ttk.Frame(self.notebook, style="Sidebar.TFrame")
 
         self.notebook.add(self.tab_capture, text="📷 Capture")
         self.notebook.add(self.tab_filters, text="🎨 Effects")
         self.notebook.add(self.tab_ai, text="🤖 AI Vision")
+        self.notebook.add(self.tab_3d, text="🌐 3D Cloud")
         self.notebook.add(self.tab_shortcuts, text="⚙ Settings")
+
+        # Right Viewport Container (holds both 2D Live Viewport and 3D PCD Viewer)
+        self.viewport_container = ttk.Frame(self.workspace, style="TFrame")
+        self.viewport_container.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        self.viewport = CanvasViewport(self.viewport_container, on_pan_callback=self._on_pan_change)
+        self.viewport.pack(fill=tk.BOTH, expand=True)
+
+        self.pcd_viewer = PointCloudViewerWidget(self.viewport_container, on_status_msg=self.set_status)
+        # pcd_viewer is packed dynamically when switching views
 
         self._populate_capture_tab()
         self._populate_filters_tab()
         self._populate_ai_tab()
+        self._populate_3d_tab()
         self._populate_settings_tab()
-
-        # Right Video Viewport Canvas
-        self.viewport = CanvasViewport(self.workspace, on_pan_callback=self._on_pan_change)
-        self.viewport.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
     def _populate_capture_tab(self):
         """Populate Capture tab with Photo, Video, Burst, Timelapse, and Timer controls."""
@@ -414,6 +437,85 @@ class WebcamStudioApp:
         self.scale_security = ttk.Scale(sec_thresh_frame, from_=1.0, to=15.0, value=3.5,
                                         orient="horizontal", command=self._on_security_thresh_change)
         self.scale_security.pack(fill=tk.X, pady=2)
+
+    def _populate_3d_tab(self):
+        """Populate 3D Point Cloud Studio Tab."""
+        p = self.tab_3d
+
+        # 1. Capture & Generate Card
+        card_gen = ttk.Frame(p, style="Card.TFrame")
+        card_gen.pack(fill=tk.X, padx=8, pady=8)
+
+        ttk.Label(card_gen, text="3D POINT CLOUD CREATION", style="Subheader.TLabel").pack(anchor=tk.W, padx=10, pady=(10, 6))
+
+        self.btn_create_3d = ttk.Button(card_gen, text="✨ CAPTURE 3D POINT CLOUD", style="Primary.TButton",
+                                        command=self.capture_and_generate_3d)
+        self.btn_create_3d.pack(fill=tk.X, padx=10, pady=6)
+
+        ttk.Button(card_gen, text="📁 Convert Image File to 3D", style="TButton",
+                   command=self.load_image_to_3d).pack(fill=tk.X, padx=10, pady=(2, 10))
+
+        # 2. Reconstruction Settings Card
+        card_params = ttk.Frame(p, style="Card.TFrame")
+        card_params.pack(fill=tk.X, padx=8, pady=6)
+
+        ttk.Label(card_params, text="RECONSTRUCTION SETTINGS", style="Subheader.TLabel").pack(anchor=tk.W, padx=10, pady=(10, 6))
+
+        # Stride / Resolution
+        dens_frame = ttk.Frame(card_params, style="Card.TFrame")
+        dens_frame.pack(fill=tk.X, padx=10, pady=3)
+        ttk.Label(dens_frame, text="Resolution:", style="Muted.TLabel").pack(side=tk.LEFT)
+        self.pcd_stride_var = tk.IntVar(value=3)
+        for label, val in [("Fast", 5), ("Balanced", 3), ("Ultra HD", 2)]:
+            ttk.Radiobutton(dens_frame, text=label, variable=self.pcd_stride_var, value=val).pack(side=tk.LEFT, padx=4)
+
+        # Depth Extrusion Scale
+        depth_scale_frame = ttk.Frame(card_params, style="Card.TFrame")
+        depth_scale_frame.pack(fill=tk.X, padx=10, pady=4)
+        header_ds = ttk.Frame(depth_scale_frame, style="Card.TFrame")
+        header_ds.pack(fill=tk.X)
+        ttk.Label(header_ds, text="Depth Extrusion Scale:", style="Muted.TLabel").pack(side=tk.LEFT)
+        self.lbl_depth_val = ttk.Label(header_ds, text="1.5x", style="Muted.TLabel")
+        self.lbl_depth_val.pack(side=tk.RIGHT)
+        self.pcd_depth_scale = ttk.Scale(depth_scale_frame, from_=0.2, to=3.5, value=1.5, orient="horizontal",
+                                         style="Horizontal.TScale",
+                                         command=lambda v: self.lbl_depth_val.config(text=f"{float(v):.1f}x"))
+        self.pcd_depth_scale.pack(fill=tk.X, pady=2)
+
+        # Background Culling
+        bg_frame = ttk.Frame(card_params, style="Card.TFrame")
+        bg_frame.pack(fill=tk.X, padx=10, pady=4)
+        header_bg = ttk.Frame(bg_frame, style="Card.TFrame")
+        header_bg.pack(fill=tk.X)
+        ttk.Label(header_bg, text="Background Filter Distance:", style="Muted.TLabel").pack(side=tk.LEFT)
+        self.lbl_bg_val = ttk.Label(header_bg, text="88%", style="Muted.TLabel")
+        self.lbl_bg_val.pack(side=tk.RIGHT)
+        self.pcd_bg_filter = ttk.Scale(bg_frame, from_=0.5, to=1.0, value=0.88, orient="horizontal",
+                                       style="Horizontal.TScale",
+                                       command=lambda v: self.lbl_bg_val.config(text=f"{int(float(v)*100)}%"))
+        self.pcd_bg_filter.pack(fill=tk.X, pady=2)
+
+        # 3. Model Information & Quick Tools Card
+        card_info = ttk.Frame(p, style="Card.TFrame")
+        card_info.pack(fill=tk.X, padx=8, pady=6)
+
+        ttk.Label(card_info, text="3D MODEL INFO & TOOLS", style="Subheader.TLabel").pack(anchor=tk.W, padx=10, pady=(10, 6))
+
+        self.pcd_stats_label = ttk.Label(card_info, text="No 3D Model created yet.\nClick 'Capture 3D Point Cloud' above.",
+                                         style="Muted.TLabel", justify=tk.LEFT)
+        self.pcd_stats_label.pack(fill=tk.X, padx=10, pady=4)
+
+        ttk.Separator(card_info, orient="horizontal").pack(fill=tk.X, padx=10, pady=6)
+
+        btn_tools_box = ttk.Frame(card_info, style="Card.TFrame")
+        btn_tools_box.pack(fill=tk.X, padx=10, pady=(2, 10))
+
+        ttk.Button(btn_tools_box, text="💾 Save PLY", style="Small.TButton",
+                   command=self.pcd_viewer.export_ply).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_tools_box, text="💾 Save OBJ", style="Small.TButton",
+                   command=self.pcd_viewer.export_obj).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_tools_box, text="🚀 Open3D", style="Small.TButton",
+                   command=self.pcd_viewer.open_in_open3d).pack(side=tk.LEFT, padx=2)
 
     def _populate_settings_tab(self):
         """Populate Settings tab with Keyboard Shortcuts and Architecture Specs."""
@@ -730,6 +832,99 @@ class WebcamStudioApp:
                 self.btn_pause.config(text="⏸ PAUSE RECORDING  [P]")
                 self.set_status("Recording resumed.")
 
+    # ------------------ 3D Point Cloud Handlers ------------------
+
+    def switch_view(self, view_name: str):
+        """Switch central display between 2D Camera View and 3D Point Cloud Studio."""
+        self.active_view = view_name
+        if view_name == "2D Camera":
+            self.pcd_viewer.pack_forget()
+            self.viewport.pack(fill=tk.BOTH, expand=True)
+            self.btn_view_2d.config(style="Primary.TButton")
+            self.btn_view_3d.config(style="Small.TButton")
+            self.set_status("Viewing Live Camera Feed.")
+        else:
+            self.viewport.pack_forget()
+            self.pcd_viewer.pack(fill=tk.BOTH, expand=True)
+            self.pcd_viewer.render()
+            self.btn_view_2d.config(style="Small.TButton")
+            self.btn_view_3d.config(style="Primary.TButton")
+            self.set_status("Viewing Interactive 3D Point Cloud Studio (Left-drag to rotate, Scroll to zoom).")
+
+    def capture_and_generate_3d(self):
+        """Capture current camera frame and generate 3D Point Cloud."""
+        ret, frame = self.camera_stream.get_frame()
+        if not ret or frame is None:
+            messagebox.showwarning("Notice", "Camera frame not available.")
+            return
+
+        # Process with active filters
+        processed = self.filter_engine.process(frame)
+
+        # Audio visual feedback
+        self.audio.play_shutter_click()
+        self.viewport.trigger_flash()
+        self.set_status("Estimating depth and reconstructing 3D Point Cloud...")
+        self.root.update_idletasks()
+
+        # Generate 3D point cloud model
+        stride = self.pcd_stride_var.get()
+        depth_scale = self.pcd_depth_scale.get()
+        bg_cutoff = self.pcd_bg_filter.get()
+
+        pcd_data = self.pcd_generator.generate(
+            frame=processed,
+            stride=stride,
+            depth_scale=depth_scale,
+            bg_cutoff=bg_cutoff
+        )
+
+        # Load into 3D viewer
+        self.pcd_viewer.load_point_cloud(pcd_data)
+
+        # Update stats
+        pts = pcd_data.num_points
+        dx, dy, dz = pcd_data.bounding_box
+        self.pcd_stats_label.config(
+            text=f"Active Model: {pts:,} Points\nBBox: {dx:.2f} x {dy:.2f} x {dz:.2f} m\nFormat: 3D Point Cloud (RGB)"
+        )
+
+        # Automatically switch to 3D Viewport
+        self.switch_view("3D Point Cloud")
+        self.set_status(f"✨ 3D Point Cloud created ({pts:,} points)! Drag to rotate in 3D.")
+
+    def load_image_to_3d(self):
+        """Load an existing photo from disk and convert to 3D Point Cloud."""
+        path = filedialog.askopenfilename(
+            title="Select Photo for 3D Conversion",
+            filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.bmp")]
+        )
+        if path and os.path.exists(path):
+            img = cv2.imread(path)
+            if img is not None:
+                stride = self.pcd_stride_var.get()
+                depth_scale = self.pcd_depth_scale.get()
+                bg_cutoff = self.pcd_bg_filter.get()
+
+                self.set_status(f"Generating 3D model from {os.path.basename(path)}...")
+                self.root.update_idletasks()
+
+                pcd_data = self.pcd_generator.generate(
+                    frame=img,
+                    stride=stride,
+                    depth_scale=depth_scale,
+                    bg_cutoff=bg_cutoff
+                )
+                self.pcd_viewer.load_point_cloud(pcd_data)
+
+                pts = pcd_data.num_points
+                dx, dy, dz = pcd_data.bounding_box
+                self.pcd_stats_label.config(
+                    text=f"Active Model: {pts:,} Points ({os.path.basename(path)})\nBBox: {dx:.2f} x {dy:.2f} x {dz:.2f} m"
+                )
+                self.switch_view("3D Point Cloud")
+                self.set_status(f"3D Point Cloud created from image ({pts:,} points)!")
+
     # ------------------ Master Update Loop ------------------
 
     def update_loop(self):
@@ -766,18 +961,19 @@ class WebcamStudioApp:
                     self.audio.play_countdown_go()
                     self._execute_photo_capture()
 
-            # 5. Render to high-performance viewport
-            rec_dur = self.recorder.get_recording_duration()
-            self.viewport.render_frame(
-                frame=processed_frame,
-                capture_fps=self.camera_stream.fps,
-                is_recording=self.recorder.is_recording,
-                is_paused=self.recorder.is_paused,
-                recording_duration=rec_dur,
-                active_filter=self.filter_engine.current_filter,
-                motion_percent=self.ai_vision.motion_percent,
-                is_security_active=self.ai_vision.security_guard_enabled
-            )
+            # 5. Render to high-performance viewport if in 2D Camera mode
+            if self.active_view == "2D Camera":
+                rec_dur = self.recorder.get_recording_duration()
+                self.viewport.render_frame(
+                    frame=processed_frame,
+                    capture_fps=self.camera_stream.fps,
+                    is_recording=self.recorder.is_recording,
+                    is_paused=self.recorder.is_paused,
+                    recording_duration=rec_dur,
+                    active_filter=self.filter_engine.current_filter,
+                    motion_percent=self.ai_vision.motion_percent,
+                    is_security_active=self.ai_vision.security_guard_enabled
+                )
 
             # Update live recording indicator on status bar
             if self.recorder.is_recording:

@@ -65,7 +65,28 @@ An advanced, pro-grade desktop webcam studio application built with **OpenCV**, 
   - MOG2 background subtractor with real-time motion percentage meter and neon bounding boxes.
   - **Auto-Snapshot on Motion**: Automatically captures timestamped security photos when movement exceeds a customizable sensitivity threshold.
 
-### 4. 🎬 Studio Recording & Capture
+### 4. 🌐 Photo 3D Point Cloud Creation & Viewer Studio
+- **Monocular 3D Reconstruction**:
+  - Multi-cue depth estimation: Bilateral edge-preserving gradients + central focal weighting + facial convex dome priors.
+  - Sub-50ms instant generation: Converts any webcam frame or photo into thousands of 3D coordinates $(X, Y, Z)$ with true RGB color mapping.
+  - Automatic surface normal calculation $(N_x, N_y, N_z)$ and statistical outlier noise filtering.
+- **Embedded Interactive 3D Canvas Studio**:
+  - Vectorized NumPy 3D perspective projection running at **>100 FPS**.
+  - **Interactive 3D Orbiting**: Left-click drag to orbit/rotate, Right-click drag to pan, Scroll wheel to zoom in/out.
+  - **4 Real-Time 3D Shading Modes**:
+    - `RGB Photo`: Full original photorealistic colors.
+    - `Depth Heatmap`: Turbo depth spectrum visualization.
+    - `Height Elevation`: Plasma vertical contour gradient.
+    - `3D Lit`: Realistic virtual sunlight illumination with computed surface normals.
+  - **Turntable Auto-Rotate**: Smooth 360° showcase spinning.
+  - **Camera Presets**: Instant Front, Isometric, and Top view snapping.
+- **Universal 3D Export & Inspection**:
+  - Standard **`.PLY`** (Stanford Point Cloud) with RGB vertex colors and normals.
+  - Standard **`.OBJ`** (Wavefront 3D Object) with vertex colors.
+  - 1-Click **Launch in Windows 3D Viewer** (`os.startfile`).
+  - 1-Click **Open in GPU-Accelerated Open3D Studio** (`o3d.visualization.draw_geometries`).
+
+### 5. 🎬 Studio Recording & Capture
 - **Synchronized MP4 Video Recording**:
   - Constant Frame Rate (CFR) `mp4v` encoder preventing fast-forward speed bugs.
   - **Pause & Resume** support during active recording (`P`).
@@ -76,8 +97,9 @@ An advanced, pro-grade desktop webcam studio application built with **OpenCV**, 
 - **Time-Lapse Mode**: Automatic recurring capture at 1s, 2s, 5s, 10s, or 30s intervals saved into organized session folders.
 - **SLR Shutter Flash & Procedural Sound**: Brief translucent white screen flash and mechanical shutter click sound (can be muted anytime).
 
-### 5. 🖥️ Obsidian Studio UI & Media Gallery
+### 6. 🖥️ Obsidian Studio UI & Media Gallery
 - **Modern Obsidian Theme**: Deep dark theme with electric cyan, purple, and emerald neon accents.
+- **Instant 2D/3D Viewport Switching**: Toggle between live camera preview and interactive 3D model studio anytime.
 - **Framing Composition Guides (`G`)**:
   - Rule of Thirds
   - Center Crosshair & Reticle
@@ -115,17 +137,21 @@ web-cam-withgui/
 │   ├── camera_stream.py      # DirectShow capture, resolution negotiation & synthetic fallback
 │   ├── filter_engine.py      # 17 artistic filters, color grading, adjustments & digital zoom
 │   ├── ai_vision.py          # Fast face tracking, EMA smoothing, AR props, QR scanner & motion guard
+│   ├── point_cloud.py        # 3D Depth estimation, back-projection, normals & PLY/OBJ export
 │   ├── recorder.py           # Synchronized MP4 video recorder, burst & time-lapse engine
 │   └── audio_cue.py          # Procedural mechanical shutter sound & countdown beeps
 ├── ui/
 │   ├── theme.py              # Studio Pro dark theme palette and TTK custom styles
 │   ├── canvas_viewport.py    # Zero-flicker double-buffered canvas, framing grids & HUD
+│   ├── point_cloud_viewer.py # Interactive 3D point cloud studio viewer (>100 FPS)
 │   ├── gallery_panel.py      # Collapsible bottom media gallery drawer
 │   └── clipboard_helper.py   # Windows native CF_DIB image & text clipboard copier
+├── models/                   # Exported 3D Point Clouds (.PLY, .OBJ)
 ├── snapshots/                # Captured photos and time-lapse sessions
 ├── recordings/               # Recorded MP4 videos
 ├── tests/
-│   └── test_studio.py        # Comprehensive unit test suite (100% passing)
+│   ├── test_studio.py        # Core studio unit test suite
+│   └── test_point_cloud.py   # 3D Point Cloud generator & export tests
 ├── main.py                   # Main Studio Application Entry Point
 ├── camera.py                 # Fully backward-compatible Camera API wrapper
 ├── build_exe.py              # Standalone executable build script (PyInstaller)

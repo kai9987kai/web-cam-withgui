@@ -29,6 +29,8 @@ def build():
         "--hidden-import=PIL",
         "--hidden-import=win32clipboard",
         "--hidden-import=pyperclip",
+        "--hidden-import=open3d",
+        "--hidden-import=plyfile",
         "main.py"
     ]
 
